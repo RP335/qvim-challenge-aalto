@@ -65,7 +65,7 @@ To start the training, run the following command.
 ```
 cd MAIN_FOLDER_OF_THIS_REPOSITORY
 export PYTHONPATH=$(pwd)/src
-python src.qvim_mn_baseline.ex_qvim.py
+python src/qvim_mn_baseline/ex_qvim.py
 ```
 
 ## Evaluation Results
