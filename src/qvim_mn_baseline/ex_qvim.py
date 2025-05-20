@@ -19,6 +19,8 @@ from qvim_mn_baseline.mn.preprocess import AugmentMelSTFT
 from qvim_mn_baseline.mn.model import get_model as get_mobilenet
 from qvim_mn_baseline.utils import NAME_TO_WIDTH
 from qvim_mn_baseline.metrics import compute_mrr, compute_ndcg
+from qvim_mn_baseline.my_aug_dataset import ClassTargetedAugmentedVimSketch
+
 
 class QVIMModule(pl.LightningModule):
     """
@@ -214,22 +216,61 @@ def train(config):
     # Train dual encoder for QBV
 
     # download the data set if the folder does not exist
-    download_vimsketch_dataset(config.dataset_path)
-    download_qvim_dev_dataset(config.dataset_path)
+    # download_vimsketch_dataset(config.dataset_path)
+    # download_qvim_dev_dataset(config.dataset_path)
 
     wandb_logger = WandbLogger(
         project=config.project,
         config=config
     )
 
-    train_ds = VimSketchDataset(
+    mrr_scores_for_augmentation = {
+        "Doorbell": 0.14, "SwordShing": 0.17, "Rip": 0.179, "BreakingGlass": 0.18,
+        "Footsteps": 0.188, "Spring": 0.201, "Smash": 0.205, "Grunts": 0.22,
+        "Snoring": 0.227, "Crumple": 0.23, "Whip": 0.24, "Birds": 0.28
+    }
+
+    active_class_mrr_scores = {}
+    if config.target_classes:  # config.target_classes is a list of strings
+        for class_name in config.target_classes:
+            if class_name in mrr_scores_for_augmentation:
+                active_class_mrr_scores[class_name] = mrr_scores_for_augmentation[class_name]
+            else:
+                # Handle classes specified in --target_classes but not in mrr_scores_for_augmentation
+                # Option 1: Skip them for weighted augmentation
+                # Option 2: Assign a default MRR (e.g., a low one to encourage augmentation)
+                print(
+                    f"Warning: Class '{class_name}' from --target_classes not found in predefined MRR scores. It will not be specifically targeted for weighted augmentation unless you add it to mrr_scores_for_augmentation or modify logic.")
+                # Or, assign a default: active_class_mrr_scores[class_name] = 0.1 # example default
+    else:
+        print(
+            "No --target_classes specified, or empty. Weighted augmentation will only apply if active_class_mrr_scores is populated.")
+
+    # train_ds = VimSketchDataset(
+    #     os.path.join(config.dataset_path, 'Vim_Sketch_Dataset'),
+    #     sample_rate=config.sample_rate,
+    #     duration=config.duration
+    # )
+
+    # train_ds = ClassTargetedAugmentedVimSketch(
+    #     os.path.join(config.dataset_path, 'Vim_Sketch_Dataset'),
+    #     sample_rate=config.sample_rate,
+    #     duration=config.duration,
+    #     target_classes=config.target_classes,
+    #     augment=True
+    # )
+
+    train_ds = ClassTargetedAugmentedVimSketch(
         os.path.join(config.dataset_path, 'Vim_Sketch_Dataset'),
         sample_rate=config.sample_rate,
-        duration=config.duration
+        duration=config.duration,
+        class_mrr_scores=active_class_mrr_scores,  # Pass the prepared dictionary
+        augment=True,  # Or control this with another config. Gglobal augmentation switch.
+        base_augmentation_prob=0.3,  # Tune this: min chance of augmentation for a matched class
+        mrr_influence_factor=0.7  # Tune this: how much MRR impacts the chance (max boost)
     )
-
     eval_ds = AESAIMLA_DEV(
-        os.path.join(config.dataset_path, 'qvim-dev'),
+        os.path.join(config.dataset_path, 'DEVUpdatedDataset'),
         sample_rate=config.sample_rate,
         duration=config.duration
     )
@@ -253,16 +294,22 @@ def train(config):
 
     callbacks = []
     if config.model_save_path:
+        # Get a safe run name (fall back to run id if name is None)
+        run_name = getattr(wandb_logger.experiment, 'name', None) \
+                   or getattr(wandb_logger.experiment, 'id', None) \
+                   or 'wandb-run'
+        save_dir = os.path.join(config.model_save_path, run_name)
         callbacks.append(
             ModelCheckpoint(
-            dirpath=os.path.join(config.model_save_path, wandb_logger.experiment.name),  # Directory to save checkpoints
-            filename="best-checkpoint",
-            monitor="val/mrr",  # Metric to monitor for best model
-            mode="min",  # Save model with lowest val_loss
-            save_top_k=1,  # Only keep the best checkpoint
-            save_last=True  # Always save the last checkpoint
+                dirpath=save_dir,
+                filename="best-checkpoint",
+                monitor="val/mrr",
+                mode="min",
+                save_top_k=1,
+                save_last=True
             )
         )
+
     trainer = pl.Trainer(
         max_epochs=config.n_epochs,
         logger=wandb_logger,
@@ -297,6 +344,12 @@ if __name__ == '__main__':
                         help="Path to store the checkpoints. Use None to disable saving.")
     parser.add_argument('--dataset_path', type=str, default='data',
                         help="Path to the data sets.")
+    parser.add_argument(
+        '--target_classes',
+        type=str,
+        default="",
+        help="Comma-separated list of class names to target augmentation, e.g. 'BreakingGlass,Snoring,Doorbell'"
+    )
 
     # Encoder architecture
     parser.add_argument('--pretrained_name', type=str, default="mn10_as",
@@ -353,6 +406,11 @@ if __name__ == '__main__':
                         help="Variation range for fmax augmentation.")
 
     args = parser.parse_args()
+
+    args.target_classes = [
+        tc.strip() for tc in args.target_classes.split(',')
+        if tc.strip()
+    ]
 
     if args.random_seed:
         pl.seed_everything(args.random_seed)

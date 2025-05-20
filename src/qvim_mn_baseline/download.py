@@ -7,17 +7,17 @@ import sys
 
 def download_qvim_dev_dataset(data_dir: str = "data"):
     URL = "https://cloud.cp.jku.at/index.php/s/R2tJQnPmxp6RSSz/download/qvim-dev.zip"
-    zip_file = os.path.join(data_dir, "qvim-dev.zip")
+    zip_file = os.path.join(data_dir, "DEVUpdatedDataset.zip")
 
     if os.path.exists(zip_file):
         print(f"{zip_file} already exists. Skipping download. {URL}")
     else:
         download_zip(URL, zip_file)
 
-    if os.path.exists(os.path.join(data_dir, "qvim-dev")):
+    if os.path.exists(os.path.join(data_dir, "DEVUpdatedDataset")):
         print(f"qvim-dev already exists. Skipping extraction.")
     else:
-        extract_zip(zip_file, os.path.join(data_dir, 'qvim-dev'))
+        extract_zip(zip_file, os.path.join(data_dir, 'DEVUpdatedDataset'))
 
 
 def download_vimsketch_dataset(data_dir: str = "data"):
