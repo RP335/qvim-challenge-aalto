@@ -19,7 +19,7 @@ from qvim_mn_baseline.mn.preprocess import AugmentMelSTFT
 from qvim_mn_baseline.mn.model import get_model as get_mobilenet
 from qvim_mn_baseline.utils import NAME_TO_WIDTH
 from qvim_mn_baseline.metrics import compute_mrr, compute_ndcg
-from qvim_mn_baseline.my_aug_dataset import ClassTargetedAugmentedVimSketch
+from qvim_mn_baseline.aug_dataset_full import ClassTargetedAugmentedVimSketch
 
 
 class QVIMModule(pl.LightningModule):
@@ -227,24 +227,23 @@ def train(config):
     mrr_scores_for_augmentation = {
         "Doorbell": 0.14, "SwordShing": 0.17, "Rip": 0.179, "BreakingGlass": 0.18,
         "Footsteps": 0.188, "Spring": 0.201, "Smash": 0.205, "Grunts": 0.22,
-        "Snoring": 0.227, "Crumple": 0.23, "Whip": 0.24, "Birds": 0.28
+        "Snoring": 0.227, "Crumple": 0.23, "Whip": 0.24, "Birds": 0.28, "Rain": 0.29, "Thunder": 0.31,
+        "SnakeHissing": 0.32, "Scratch": 0.317, "Pig": 0.33, "DogBarks": 0.42, "CarHorn": 0.57, "MachineGun": 0.58
     }
 
     active_class_mrr_scores = {}
-    if config.target_classes:  # config.target_classes is a list of strings
+    if config.target_classes:
+        print(f"Targeting specific classes for MRR-weighted augmentation: {config.target_classes}")
         for class_name in config.target_classes:
             if class_name in mrr_scores_for_augmentation:
                 active_class_mrr_scores[class_name] = mrr_scores_for_augmentation[class_name]
             else:
-                # Handle classes specified in --target_classes but not in mrr_scores_for_augmentation
-                # Option 1: Skip them for weighted augmentation
-                # Option 2: Assign a default MRR (e.g., a low one to encourage augmentation)
                 print(
                     f"Warning: Class '{class_name}' from --target_classes not found in predefined MRR scores. It will not be specifically targeted for weighted augmentation unless you add it to mrr_scores_for_augmentation or modify logic.")
-                # Or, assign a default: active_class_mrr_scores[class_name] = 0.1 # example default
     else:
         print(
-            "No --target_classes specified, or empty. Weighted augmentation will only apply if active_class_mrr_scores is populated.")
+            "No --target_classes specified. Using ALL predefined MRR scores for weighted augmentation.")
+        active_class_mrr_scores = mrr_scores_for_augmentation.copy()  # Use all predefined scores
 
     # train_ds = VimSketchDataset(
     #     os.path.join(config.dataset_path, 'Vim_Sketch_Dataset'),
@@ -295,16 +294,17 @@ def train(config):
     callbacks = []
     if config.model_save_path:
         # Get a safe run name (fall back to run id if name is None)
-        run_name = getattr(wandb_logger.experiment, 'name', None) \
-                   or getattr(wandb_logger.experiment, 'id', None) \
-                   or 'wandb-run'
+        # run_name = getattr(wandb_logger.experiment, 'name', None) \
+        #            or getattr(wandb_logger.experiment, 'id', None) \
+        #            or 'wandb-run'
+        run_name = 'aug_baseline_run_2'
         save_dir = os.path.join(config.model_save_path, run_name)
         callbacks.append(
             ModelCheckpoint(
                 dirpath=save_dir,
-                filename="best-checkpoint",
+                filename="epoch={epoch:02d}-mrr={val/mrr:.4f}",
                 monitor="val/mrr",
-                mode="min",
+                mode="max",
                 save_top_k=1,
                 save_last=True
             )
@@ -340,14 +340,14 @@ if __name__ == '__main__':
                         help="Number of data loader workers. Set to 0 for no multiprocessing.")
     parser.add_argument('--num_gpus', type=int, default=1,
                         help="Number of GPUs to use for training.")
-    parser.add_argument('--model_save_path', type=str, default=None,
+    parser.add_argument('--model_save_path', type=str, default="checkpoints_26_may",
                         help="Path to store the checkpoints. Use None to disable saving.")
     parser.add_argument('--dataset_path', type=str, default='data',
                         help="Path to the data sets.")
     parser.add_argument(
         '--target_classes',
         type=str,
-        default="",
+        default="Doorbell,SwordShing,Rip,BreakingGlass,Footsteps,Spring,Smash,Grunts,Snoring,Crumple,Whip,Birds,Rain,Thunder,SnakeHissing,Scratch,Pig,DogBarks,CarHorn,MachineGun",
         help="Comma-separated list of class names to target augmentation, e.g. 'BreakingGlass,Snoring,Doorbell'"
     )
 

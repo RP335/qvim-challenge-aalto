@@ -52,38 +52,28 @@ class ClassTargetedAugmentedVimSketch(VimSketchDataset):
         if self.pipeline and self.augment:
             fname = sample['reference_filename']  # e.g. '010_009Animal_…_Cluck.wav'
             fname_lower = fname.lower()
+            # --- New logic: pick class with max token match ---
+            best_class = None
+            best_info = None
+            best_count = 0
 
             for class_name, info in self.class_info.items():
-                class_tokens = info['tokens']
-                mrr_score = info['mrr']
+                count = sum(tok in fname_lower for tok in info['tokens'])
+                if count > best_count:
+                    best_class = class_name
+                    best_info = info
+                    best_count = count
 
-                # Check if all tokens for the current class are in the filename
-                if all(tok in fname_lower for tok in class_tokens):
-                    # This sample belongs to a target class
-
-                    # Calculate dynamic probability for augmentation
-                    # Lower MRR -> higher chance of augmentation
-                    # additional_prob = (1.0 - mrr_score) * self.mrr_influence_factor
-                    # Ensures that if mrr_score is, for example, 0.14 (Doorbell), and influence is 0.7,
-                    # additional_prob = (1 - 0.14) * 0.7 = 0.86 * 0.7 = 0.602
-                    # total_prob = base_prob (0.3) + 0.602 = 0.902 (capped at 1.0)
-
-                    # If mrr_score is high (e.g., 0.8 for a well-performing class),
-                    # additional_prob = (1 - 0.8) * 0.7 = 0.2 * 0.7 = 0.14
-                    # total_prob = 0.3 + 0.14 = 0.44
-
+                if best_count > 0:
+                    mrr_score = best_info['mrr']
                     additional_prob_boost = (1.0 - mrr_score) * self.mrr_influence_factor
                     current_augmentation_prob = self.base_augmentation_prob + additional_prob_boost
-                    # Clamp probability to [0.0, 1.0]
                     current_augmentation_prob = max(0.0, min(1.0, current_augmentation_prob))
 
                     if random.random() < current_augmentation_prob:
-                        # Apply augmentation
-                        # *** BUG FIX: sample['imitation'] and sample['reference'] are already numpy.ndarray ***
                         im_np = sample['imitation']
                         ref_np = sample['reference']
 
-                        # Defensive check: Ensure they are indeed numpy arrays as expected from parent
                         if not isinstance(im_np, np.ndarray):
                             im_np = im_np.numpy() if isinstance(im_np, torch.Tensor) else np.array(im_np)
                         if not isinstance(ref_np, np.ndarray):
