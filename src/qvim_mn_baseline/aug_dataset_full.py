@@ -5,6 +5,7 @@ import numpy as np
 import random
 from audiomentations import Compose, AddGaussianNoise, PitchShift, TimeStretch
 from qvim_mn_baseline.dataset import VimSketchDataset
+from audio_temporal_modifier import  TemporalModifier
 
 
 

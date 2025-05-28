@@ -1,6 +1,6 @@
 import numpy as np
 import librosa  # For RMS calculation
-
+import torch
 
 class TemporalModifier:
     def __init__(self, sample_rate: int, rms_frame_length: int = 2048, rms_hop_length: int = 512):
@@ -64,9 +64,12 @@ class TemporalModifier:
         # Ensure clipping if necessary, though direct multiplication might not require it
         # modulated_audio = np.clip(modulated_audio, -1.0, 1.0) # If your audio is in [-1,1]
 
+        # will handle both numpy arrays and torch.Tensors
+        tensor_audio = torch.as_tensor(modulated_audio, dtype=torch.float32)
+
         if modulate_reference_with_imitation:
-            sample['reference'] = torch.from_numpy(modulated_audio.astype(np.float32))
+            sample['reference'] = tensor_audio
         else:
-            sample['imitation'] = torch.from_numpy(modulated_audio.astype(np.float32))
+            sample['imitation'] = tensor_audio
 
         return sample
