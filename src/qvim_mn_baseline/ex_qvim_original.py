@@ -15,13 +15,10 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 
 from qvim_mn_baseline.dataset import VimSketchDataset, AESAIMLA_DEV
 from qvim_mn_baseline.download import download_vimsketch_dataset, download_qvim_dev_dataset
-# from qvim_mn_baseline.mn.preprocess import AugmentMelSTFT
-from qvim_mn_baseline.mn.preprocess_from_spec import AugmentMelSTFT
+from qvim_mn_baseline.mn.preprocess import AugmentMelSTFT
 from qvim_mn_baseline.mn.model import get_model as get_mobilenet
 from qvim_mn_baseline.utils import NAME_TO_WIDTH
 from qvim_mn_baseline.metrics import compute_mrr, compute_ndcg
-from qvim_mn_baseline.aug_dataset_full_light import ClassTargetedAugmentedVimSketchLight
-
 
 class QVIMModule(pl.LightningModule):
     """
@@ -217,60 +214,22 @@ def train(config):
     # Train dual encoder for QBV
 
     # download the data set if the folder does not exist
-    # download_vimsketch_dataset(config.dataset_path)
-    # download_qvim_dev_dataset(config.dataset_path)
+    download_vimsketch_dataset(config.dataset_path)
+    download_qvim_dev_dataset(config.dataset_path)
 
     wandb_logger = WandbLogger(
         project=config.project,
         config=config
     )
 
-    mrr_scores_for_augmentation = {
-        "Doorbell": 0.14, "SwordShing": 0.17, "Rip": 0.179, "BreakingGlass": 0.18,
-        "Footsteps": 0.188, "Spring": 0.201, "Smash": 0.205, "Grunts": 0.22,
-        "Snoring": 0.227, "Crumple": 0.23, "Whip": 0.24, "Birds": 0.28, "Rain": 0.29, "Thunder": 0.31,
-        "SnakeHissing": 0.32, "Scratch": 0.317, "Pig": 0.33, "DogBarks": 0.42, "CarHorn": 0.57, "MachineGun": 0.58
-    }
-
-    active_class_mrr_scores = {}
-    if config.target_classes:
-        print(f"Targeting specific classes for MRR-weighted augmentation: {config.target_classes}")
-        for class_name in config.target_classes:
-            if class_name in mrr_scores_for_augmentation:
-                active_class_mrr_scores[class_name] = mrr_scores_for_augmentation[class_name]
-            else:
-                print(
-                    f"Warning: Class '{class_name}' from --target_classes not found in predefined MRR scores. It will not be specifically targeted for weighted augmentation unless you add it to mrr_scores_for_augmentation or modify logic.")
-    else:
-        print(
-            "No --target_classes specified. Using ALL predefined MRR scores for weighted augmentation.")
-        active_class_mrr_scores = mrr_scores_for_augmentation.copy()  # Use all predefined scores
-
-    # train_ds = VimSketchDataset(
-    #     os.path.join(config.dataset_path, 'Vim_Sketch_Dataset'),
-    #     sample_rate=config.sample_rate,
-    #     duration=config.duration
-    # )
-
-    # train_ds = ClassTargetedAugmentedVimSketch(
-    #     os.path.join(config.dataset_path, 'Vim_Sketch_Dataset'),
-    #     sample_rate=config.sample_rate,
-    #     duration=config.duration,
-    #     target_classes=config.target_classes,
-    #     augment=True
-    # )
-
-    train_ds = ClassTargetedAugmentedVimSketchLight(
+    train_ds = VimSketchDataset(
         os.path.join(config.dataset_path, 'Vim_Sketch_Dataset'),
         sample_rate=config.sample_rate,
-        duration=config.duration,
-        class_mrr_scores=active_class_mrr_scores,  # Pass the prepared dictionary
-        augment=True,  # Or control this with another config. Gglobal augmentation switch.
-        base_augmentation_prob=0.3,  # Tune this: min chance of augmentation for a matched class
-        mrr_influence_factor=0.7  # Tune this: how much MRR impacts the chance (max boost)
+        duration=config.duration
     )
+
     eval_ds = AESAIMLA_DEV(
-        os.path.join(config.dataset_path, 'DEVUpdatedDataset'),
+        os.path.join(config.dataset_path, 'qvim-dev'),
         sample_rate=config.sample_rate,
         duration=config.duration
     )
@@ -294,23 +253,16 @@ def train(config):
 
     callbacks = []
     if config.model_save_path:
-        # Get a safe run name (fall back to run id if name is None)
-        # run_name = getattr(wandb_logger.experiment, 'name', None) \
-        #            or getattr(wandb_logger.experiment, 'id', None) \
-        #            or 'wandb-run'
-        run_name = 'aug_baseline_run_2'
-        save_dir = os.path.join(config.model_save_path, run_name)
         callbacks.append(
             ModelCheckpoint(
-                dirpath=save_dir,
-                filename="epoch={epoch:02d}-mrr={val/mrr:.4f}",
-                monitor="val/mrr",
-                mode="max",
-                save_top_k=1,
-                save_last=True
+            dirpath=os.path.join(config.model_save_path, wandb_logger.experiment.name),  # Directory to save checkpoints
+            filename="best-checkpoint",
+            monitor="val/mrr",  # Metric to monitor for best model
+            mode="min",  # Save model with lowest val_loss
+            save_top_k=1,  # Only keep the best checkpoint
+            save_last=True  # Always save the last checkpoint
             )
         )
-
     trainer = pl.Trainer(
         max_epochs=config.n_epochs,
         logger=wandb_logger,
@@ -341,16 +293,10 @@ if __name__ == '__main__':
                         help="Number of data loader workers. Set to 0 for no multiprocessing.")
     parser.add_argument('--num_gpus', type=int, default=1,
                         help="Number of GPUs to use for training.")
-    parser.add_argument('--model_save_path', type=str, default="checkpoints_26_may",
+    parser.add_argument('--model_save_path', type=str, default=None,
                         help="Path to store the checkpoints. Use None to disable saving.")
     parser.add_argument('--dataset_path', type=str, default='data',
                         help="Path to the data sets.")
-    parser.add_argument(
-        '--target_classes',
-        type=str,
-        default="Doorbell,SwordShing,Rip,BreakingGlass,Footsteps,Spring,Smash,Grunts,Snoring,Crumple,Whip,Birds,Rain,Thunder,SnakeHissing,Scratch,Pig,DogBarks,CarHorn,MachineGun",
-        help="Comma-separated list of class names to target augmentation, e.g. 'BreakingGlass,Snoring,Doorbell'"
-    )
 
     # Encoder architecture
     parser.add_argument('--pretrained_name', type=str, default="mn10_as",
@@ -407,11 +353,6 @@ if __name__ == '__main__':
                         help="Variation range for fmax augmentation.")
 
     args = parser.parse_args()
-
-    args.target_classes = [
-        tc.strip() for tc in args.target_classes.split(',')
-        if tc.strip()
-    ]
 
     if args.random_seed:
         pl.seed_everything(args.random_seed)
