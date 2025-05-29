@@ -114,88 +114,158 @@ class QVIMModuleAlternate(pl.LightningModule):
         self.tau = torch.nn.Parameter(initial_tau, requires_grad=config.tau_trainable)
         self.validation_output = []
 
-    def _extract_embeddings(self, encoder, audio_batch):
-        embedding = None
-        if self.model_type == "mobilenet":
-            mel_out = self.mel(audio_batch).unsqueeze(1)
-            _, embedding = encoder(mel_out)
-        elif self.model_type == "passt":
-            # hear21passt.base.get_scene_embeddings takes (audio_waveform, model)
-            # It handles the conversion to log-mel spectrograms internally if fed raw audio.
-            # The shape of audio_batch from dataloader is (batch, time_samples)
-            if self.config.passt_input_type == 'raw':
-                # get_passt_scene_embeddings_fn expects a list of numpy arrays or a batched tensor
-                # If audio_batch is already a tensor (B, T), it might work directly.
-                # Otherwise, might need: [wav.cpu().numpy() for wav in audio_batch]
-                # Let's assume it can handle a batch tensor.
-                embedding = get_passt_scene_embeddings_fn(audio_batch, encoder)
-            elif self.config.passt_input_type == 'mel':
-                if self.mel is None:
-                    raise ValueError("Mel module not initialized for PaSST with mel input.")
-                mel_spec = self.mel(audio_batch)  # (B, F, T)
-                # PaSST's internal processing might still be applied by get_scene_embeddings,
-                # or the encoder itself might take melspecs if underlying model is adapted.
-                # The PaSST model from `load_model` itself is callable.
-                # encoder(mel_spec) -> typically gives (logits, embeddings) or just embeddings for some modes.
-                # The printout shows `pre_logits` and `head`. We need output of `encoder.norm`.
-                # For simplicity and standard usage, relying on get_passt_scene_embeddings_fn with raw audio is safer.
-                # If you must feed mels, you need to ensure the `encoder` (PaSST model) expects them
-                # and gives embeddings before the head.
-                # This part might need adjustment based on how `hear21passt` expects custom mel inputs
-                # if bypassing its internal preprocessing.
-                # A common way is to pass it through model.forward_features() or similar.
-                # For now, let's stick to what `get_passt_scene_embeddings_fn` is designed for, which is often raw audio.
-                # If using the model directly: x = encoder.patch_embed(mel_spec.unsqueeze(1)) # if mel_spec is (B,F,T)
-                # x = encoder.forward_blocks(x)
-                # x = encoder.norm(x)
-                # embedding = x.mean(dim=1) # Example global average pooling if x is sequence of patches
-                raise NotImplementedError(
-                    "Feeding pre-computed melspecs to PaSST via this generic path needs specific handling. Use 'raw' for passt_input_type for now.")
-            else:
-                raise ValueError(f"Invalid passt_input_type: {self.config.passt_input_type}")
-
-        elif self.model_type == "panns":
-            # panns_inference.AudioTagging.forward(audio) returns (clipwise_output, embedding)
-            # It expects raw audio of shape (batch_size, num_samples)
-            if self.config.panns_input_type == 'raw':
-                _, embedding = encoder(audio_batch)
-            elif self.config.panns_input_type == 'mel':
-                if self.mel is None:
-                    raise ValueError("Mel module not initialized for PANNs with mel input.")
-                mel_spec = self.mel(audio_batch)  # (B, F, T)
-                # The PANNs AudioTagging model usually has its own mel frontend.
-                # Feeding custom mels requires using the core Cnn14 model directly.
-                # For AudioTagging wrapper, raw input is standard.
-                raise NotImplementedError(
-                    "Feeding pre-computed melspecs to PANNs AudioTagging wrapper needs specific handling. Use 'raw' for panns_input_type.")
-            else:
-                raise ValueError(f"Invalid panns_input_type: {self.config.panns_input_type}")
-
-        elif self.model_type == "beats":
-            # SpeechBrain BEATs model's forward or extract_features takes raw audio.
-            # Its output might be a tuple or a tensor.
-            # `encoder.extract_features(audio_batch)` is a common way.
-            output_features = encoder.extract_features(audio_batch)  # Expected: (B, Seq, Dim)
-
-            if isinstance(output_features, tuple):  # If model returns more than features
-                output_features = output_features[0]  # Assuming first element is the embedding sequence
-
-            if output_features.ndim == 3:
-                embedding = torch.mean(output_features, dim=1)  # Mean pool over sequence
-            elif output_features.ndim == 2:  # Already pooled
-                embedding = output_features
-            else:
-                raise ValueError(f"Unexpected embedding dimension from BEATs: {output_features.shape}")
-        else:
-            raise ValueError(f"Unsupported model type in _extract_embeddings: {self.model_type}")
-
-        if embedding is None:
-            raise RuntimeError(f"Embedding extraction failed for model type {self.model_type}")
-        return torch.nn.functional.normalize(embedding, dim=1)
+    # def _extract_embeddings(self, encoder, audio_batch):
+    #     embedding = None
+    #     if self.model_type == "mobilenet":
+    #         mel_out = self.mel(audio_batch).unsqueeze(1)
+    #         _, embedding = encoder(mel_out)
+    #     elif self.model_type == "passt":
+    #         # hear21passt.base.get_scene_embeddings takes (audio_waveform, model)
+    #         # It handles the conversion to log-mel spectrograms internally if fed raw audio.
+    #         # The shape of audio_batch from dataloader is (batch, time_samples)
+    #         if self.config.passt_input_type == 'raw':
+    #             # get_passt_scene_embeddings_fn expects a list of numpy arrays or a batched tensor
+    #             # If audio_batch is already a tensor (B, T), it might work directly.
+    #             # Otherwise, might need: [wav.cpu().numpy() for wav in audio_batch]
+    #             # Let's assume it can handle a batch tensor.
+    #             embedding = get_passt_scene_embeddings_fn(audio_batch, encoder)
+    #         elif self.config.passt_input_type == 'mel':
+    #             if self.mel is None:
+    #                 raise ValueError("Mel module not initialized for PaSST with mel input.")
+    #             mel_spec = self.mel(audio_batch)  # (B, F, T)
+    #             # PaSST's internal processing might still be applied by get_scene_embeddings,
+    #             # or the encoder itself might take melspecs if underlying model is adapted.
+    #             # The PaSST model from `load_model` itself is callable.
+    #             # encoder(mel_spec) -> typically gives (logits, embeddings) or just embeddings for some modes.
+    #             # The printout shows `pre_logits` and `head`. We need output of `encoder.norm`.
+    #             # For simplicity and standard usage, relying on get_passt_scene_embeddings_fn with raw audio is safer.
+    #             # If you must feed mels, you need to ensure the `encoder` (PaSST model) expects them
+    #             # and gives embeddings before the head.
+    #             # This part might need adjustment based on how `hear21passt` expects custom mel inputs
+    #             # if bypassing its internal preprocessing.
+    #             # A common way is to pass it through model.forward_features() or similar.
+    #             # For now, let's stick to what `get_passt_scene_embeddings_fn` is designed for, which is often raw audio.
+    #             # If using the model directly: x = encoder.patch_embed(mel_spec.unsqueeze(1)) # if mel_spec is (B,F,T)
+    #             # x = encoder.forward_blocks(x)
+    #             # x = encoder.norm(x)
+    #             # embedding = x.mean(dim=1) # Example global average pooling if x is sequence of patches
+    #             raise NotImplementedError(
+    #                 "Feeding pre-computed melspecs to PaSST via this generic path needs specific handling. Use 'raw' for passt_input_type for now.")
+    #         else:
+    #             raise ValueError(f"Invalid passt_input_type: {self.config.passt_input_type}")
+    #
+    #     elif self.model_type == "panns":
+    #         # panns_inference.AudioTagging.forward(audio) returns (clipwise_output, embedding)
+    #         # It expects raw audio of shape (batch_size, num_samples)
+    #         if self.config.panns_input_type == 'raw':
+    #             _, embedding = encoder(audio_batch)
+    #         elif self.config.panns_input_type == 'mel':
+    #             if self.mel is None:
+    #                 raise ValueError("Mel module not initialized for PANNs with mel input.")
+    #             mel_spec = self.mel(audio_batch)  # (B, F, T)
+    #             # The PANNs AudioTagging model usually has its own mel frontend.
+    #             # Feeding custom mels requires using the core Cnn14 model directly.
+    #             # For AudioTagging wrapper, raw input is standard.
+    #             raise NotImplementedError(
+    #                 "Feeding pre-computed melspecs to PANNs AudioTagging wrapper needs specific handling. Use 'raw' for panns_input_type.")
+    #         else:
+    #             raise ValueError(f"Invalid panns_input_type: {self.config.panns_input_type}")
+    #
+    #     elif self.model_type == "beats":
+    #         # SpeechBrain BEATs model's forward or extract_features takes raw audio.
+    #         # Its output might be a tuple or a tensor.
+    #         # `encoder.extract_features(audio_batch)` is a common way.
+    #         output_features = encoder.extract_features(audio_batch)  # Expected: (B, Seq, Dim)
+    #
+    #         if isinstance(output_features, tuple):  # If model returns more than features
+    #             output_features = output_features[0]  # Assuming first element is the embedding sequence
+    #
+    #         if output_features.ndim == 3:
+    #             embedding = torch.mean(output_features, dim=1)  # Mean pool over sequence
+    #         elif output_features.ndim == 2:  # Already pooled
+    #             embedding = output_features
+    #         else:
+    #             raise ValueError(f"Unexpected embedding dimension from BEATs: {output_features.shape}")
+    #     else:
+    #         raise ValueError(f"Unsupported model type in _extract_embeddings: {self.model_type}")
+    #
+    #     if embedding is None:
+    #         raise RuntimeError(f"Embedding extraction failed for model type {self.model_type}")
+    #     return torch.nn.functional.normalize(embedding, dim=1)
 
     def forward(self, queries, items):
         return self._extract_embeddings(self.imitation_encoder, queries), \
             self._extract_embeddings(self.reference_encoder, items)
+
+
+    def _extract_embeddings(self, encoder, audio_batch: torch.Tensor) -> torch.Tensor: # Added type hints
+        embedding = None
+        # ... (your existing _extract_embeddings logic for all model types) ...
+        # Ensure this logic is complete and correct as per your file
+        if self.model_type == "mobilenet":
+            mel_out = self.mel(audio_batch).unsqueeze(1)
+            _, embedding = encoder(mel_out)
+        elif self.model_type == "passt":
+            if not hasattr(self.config, 'passt_input_type'): # Defensive check
+                 self.config.passt_input_type = 'raw'
+            if self.config.passt_input_type == 'raw':
+                embedding = get_passt_scene_embeddings_fn(audio_batch, encoder) # Ensure get_passt_scene_embeddings_fn is imported
+            elif self.config.passt_input_type == 'mel':
+                # ... your mel handling for passt if you implement it ...
+                raise NotImplementedError("PaSST with pre-computed mel needs specific handling in _extract_embeddings.")
+            else:
+                raise ValueError(f"Invalid passt_input_type: {self.config.passt_input_type}")
+        elif self.model_type == "panns":
+            if not hasattr(self.config, 'panns_input_type'): # Defensive check
+                self.config.panns_input_type = 'raw'
+            if self.config.panns_input_type == 'raw':
+                _, embedding = encoder(audio_batch)
+            elif self.config.panns_input_type == 'mel':
+                raise NotImplementedError("PANNs with pre-computed mel needs specific handling in _extract_embeddings.")
+            else:
+                raise ValueError(f"Invalid panns_input_type: {self.config.panns_input_type}")
+        elif self.model_type == "beats":
+            output_features = encoder.extract_features(audio_batch)
+            if isinstance(output_features, tuple):
+                output_features = output_features[0]
+            if output_features.ndim == 3:
+                embedding = torch.mean(output_features, dim=1)
+            elif output_features.ndim == 2:
+                embedding = output_features
+            else:
+                raise ValueError(f"Unexpected BEATs embedding shape: {output_features.shape}")
+        else:
+            raise ValueError(f"Unsupported model_type in _extract_embeddings: {self.model_type}")
+
+        if embedding is None:
+            raise RuntimeError(f"Embedding was None after _extract_embeddings for {self.model_type}")
+        return torch.nn.functional.normalize(embedding, dim=1)
+
+    # vvvvvvvvvvvvvvvvvv  ADD THESE METHODS vvvvvvvvvvvvvvvvvv
+    def forward_imitation(self, imitations_batch: torch.Tensor) -> torch.Tensor:
+        """
+        Processes a batch of imitation audio and returns their embeddings.
+        Needed by the notebook's QVIMModel interface.
+        """
+        return self._extract_embeddings(self.imitation_encoder, imitations_batch)
+
+    def forward_reference(self, items_batch: torch.Tensor) -> torch.Tensor:
+        """
+        Processes a batch of reference item audio and returns their embeddings.
+        Needed by the notebook's QVIMModel interface.
+        """
+        return self._extract_embeddings(self.reference_encoder, items_batch)
+    # ^^^^^^^^^^^^^^^^^^ ADD THESE METHODS ^^^^^^^^^^^^^^^^^^
+
+    def forward(self, queries: torch.Tensor, items: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]: # Adjusted args to match usage
+        """
+        Standard PyTorch Lightning forward method.
+        It can now call the specific forward_imitation/reference methods if preferred,
+        or keep using _extract_embeddings directly. Keeping it direct is fine.
+        """
+        emb_q = self._extract_embeddings(self.imitation_encoder, queries) # Or self.forward_imitation(queries)
+        emb_i = self._extract_embeddings(self.reference_encoder, items)   # Or self.forward_reference(items)
+        return emb_q, emb_i
 
     def training_step(self, batch, batch_idx):
         if self.config.use_custom_lr_scheduler:
