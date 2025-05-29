@@ -220,6 +220,16 @@ class QVIMModuleAlternate(pl.LightningModule):
             mel_out = self.mel(audio_batch).unsqueeze(1)
             _, embedding = encoder(mel_out)
         elif self.model_type == "passt":
+            if not hasattr(self.config, 'passt_input_type'): # Defensive check
+                 self.config.passt_input_type = 'raw'
+            if self.config.passt_input_type == 'raw':
+                embedding = get_passt_scene_embeddings_fn(audio_batch, encoder) # Ensure get_passt_scene_embeddings_fn is imported
+            elif self.config.passt_input_type == 'mel':
+                # ... your mel handling for passt if you implement it ...
+                raise NotImplementedError("PaSST with pre-computed mel needs specific handling in _extract_embeddings.")
+            else:
+                raise ValueError(f"Invalid passt_input_type: {self.config.passt_input_type}")
+        elif self.model_type == "panns":
             if not hasattr(self.config, 'panns_input_type'):
                 self.config.panns_input_type = 'raw'  # Default if not in config
 
@@ -230,15 +240,6 @@ class QVIMModuleAlternate(pl.LightningModule):
                 embedding = output_dict['embedding']
             elif self.config.panns_input_type == 'mel':
                 raise NotImplementedError("PANNs with pre-computed mel for Cnn14 needs specific handling.")
-            else:
-                raise ValueError(f"Invalid panns_input_type: {self.config.panns_input_type}")
-        elif self.model_type == "panns":
-            if self.config.panns_input_type == 'raw':
-                output_dict = encoder(input=audio_batch, mixup_lambda=None)  # Call Cnn14.forward
-                embedding = output_dict['embedding']
-            elif self.config.panns_input_type == 'mel':
-                raise NotImplementedError(
-                    "PANNs with pre-computed mel for Cnn14 model needs specific handling in _extract_embeddings.")
             else:
                 raise ValueError(f"Invalid panns_input_type: {self.config.panns_input_type}")
         elif self.model_type == "beats":
