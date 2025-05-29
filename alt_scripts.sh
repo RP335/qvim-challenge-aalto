@@ -24,7 +24,7 @@ python src/qvim_mn_baseline/ex_qvim_alt.py \
     --beats_savedir "./pretrained_models_cache/beats" \
     --project "qvim-beats-experiment" \
     --dataset_path ./data \
-    --model_save_path ./checkpoints_custom \
+    --model_save_path ./checkpoints_custom_beats \
     --batch_size 8 \
     --n_epochs 50 \
     --max_lr 5e-5 \

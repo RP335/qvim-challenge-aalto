@@ -3,6 +3,7 @@ import os
 import math
 import copy  # Keep this import
 from copy import deepcopy
+import pickle
 
 import pandas as pd
 import torch
@@ -86,21 +87,23 @@ class QVIMModuleAlternate(pl.LightningModule):
                 param.requires_grad = True
         elif self.model_type == "panns":
             if not PANNS_AVAILABLE: raise RuntimeError("PANNs library (panns_inference) not available.")
-            self.imitation_encoder = PannsAudioTaggingModel(
+            panns_wrapper = PannsAudioTaggingModel(
                 checkpoint_path=config.panns_checkpoint_path,
                 device='cpu'  # PL will move to correct device
             )
+            self.imitation_encoder = panns_wrapper.model
+            self.imitation_encoder.train()  # Set the underlying Cnn14 model to train mode
+
             # Ensure PANNs is fine-tunable
+
             for param in self.imitation_encoder.parameters():
                 param.requires_grad = True
         elif self.model_type == "beats":
             if not BEATS_AVAILABLE: raise RuntimeError("BEATs library (speechbrain) not available.")
             # `source` can be a local path to .pt file or HuggingFace identifier
             self.imitation_encoder = SpeechBrainBEATsModel(
-                source=config.beats_checkpoint_path,
-                savedir=os.path.join(getattr(config, 'beats_savedir', 'pretrained_models'), "beats"),
-                # Optional: where to save downloaded models
-                freeze=False  # Important for fine-tuning
+                ckp_path=config.beats_checkpoint_path,
+                freeze=False
             )
             # SpeechBrain's freeze=False should make it trainable. Double-check if needed.
             for param in self.imitation_encoder.parameters():
@@ -108,7 +111,7 @@ class QVIMModuleAlternate(pl.LightningModule):
         else:
             raise ValueError(f"Unsupported model type: {self.model_type}")
 
-        self.reference_encoder = deepcopy(self.imitation_encoder)
+        self.reference_encoder = pickle.loads(pickle.dumps(self.imitation_encoder))
 
         initial_tau = torch.zeros((1,)) + config.initial_tau
         self.tau = torch.nn.Parameter(initial_tau, requires_grad=config.tau_trainable)
@@ -216,16 +219,19 @@ class QVIMModuleAlternate(pl.LightningModule):
             else:
                 raise ValueError(f"Invalid passt_input_type: {self.config.passt_input_type}")
         elif self.model_type == "panns":
-            if not hasattr(self.config, 'panns_input_type'): # Defensive check
-                self.config.panns_input_type = 'raw'
             if self.config.panns_input_type == 'raw':
-                _, embedding = encoder(audio_batch)
+                output_dict = encoder(input=audio_batch, mixup_lambda=None)  # Call Cnn14.forward
+                embedding = output_dict['embedding']
             elif self.config.panns_input_type == 'mel':
-                raise NotImplementedError("PANNs with pre-computed mel needs specific handling in _extract_embeddings.")
+                raise NotImplementedError(
+                    "PANNs with pre-computed mel for Cnn14 model needs specific handling in _extract_embeddings.")
             else:
                 raise ValueError(f"Invalid panns_input_type: {self.config.panns_input_type}")
         elif self.model_type == "beats":
-            output_features = encoder.extract_features(audio_batch)
+            batch_size = audio_batch.shape[0]
+            wav_lens = torch.ones(batch_size, device=audio_batch.device)  # Relative length of 1.0 for each
+
+            output_features = encoder.extract_features(audio_batch, wav_lens=wav_lens)
             if isinstance(output_features, tuple):
                 output_features = output_features[0]
             if output_features.ndim == 3:
@@ -474,6 +480,7 @@ def train_alternate(config):
         callbacks.append(LearningRateMonitor(logging_interval='step'))
 
     trainer = pl.Trainer(
+        # accumulate_grad_batches=4,
         max_epochs=config.n_epochs, logger=wandb_logger, accelerator='auto',
         devices=config.num_gpus if torch.cuda.is_available() and config.num_gpus > 0 else "auto",  # auto for CPU
         callbacks=callbacks,
