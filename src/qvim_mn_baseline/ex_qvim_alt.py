@@ -86,17 +86,28 @@ class QVIMModuleAlternate(pl.LightningModule):
             for param in self.imitation_encoder.parameters():
                 param.requires_grad = True
         elif self.model_type == "panns":
-            if not PANNS_AVAILABLE: raise RuntimeError("PANNs library (panns_inference) not available.")
+            if not PANNS_AVAILABLE:  # Ensure PANNS_AVAILABLE is defined at the top of your file
+                try:
+                    from panns_inference import AudioTagging as PannsAudioTaggingModel_local
+                    # This re-import here is just for this check if PANNS_AVAILABLE wasn't True
+                except ImportError:
+                    raise RuntimeError("PANNs library (panns_inference) not available.")
+
+            # Use the class alias that was set at the top of the file
             panns_wrapper = PannsAudioTaggingModel(
                 checkpoint_path=config.panns_checkpoint_path,
-                device='cpu'  # PL will move to correct device
+                device='cpu'
             )
+
+            if not hasattr(panns_wrapper, 'model'):
+                raise AttributeError(
+                    "The PannsAudioTaggingModel wrapper from panns_inference does not have a 'model' attribute as expected.")
+
+            # SELF.IMITATION_ENCODER IS NOW THE ACTUAL NN.MODULE (Cnn14)
             self.imitation_encoder = panns_wrapper.model
+
             self.imitation_encoder.train()  # Set the underlying Cnn14 model to train mode
-
-            # Ensure PANNs is fine-tunable
-
-            for param in self.imitation_encoder.parameters():
+            for param in self.imitation_encoder.parameters():  # Now this calls .parameters() on Cnn14
                 param.requires_grad = True
         elif self.model_type == "beats":
             if not BEATS_AVAILABLE: raise RuntimeError("BEATs library (speechbrain) not available.")
@@ -209,15 +220,18 @@ class QVIMModuleAlternate(pl.LightningModule):
             mel_out = self.mel(audio_batch).unsqueeze(1)
             _, embedding = encoder(mel_out)
         elif self.model_type == "passt":
-            if not hasattr(self.config, 'passt_input_type'): # Defensive check
-                 self.config.passt_input_type = 'raw'
-            if self.config.passt_input_type == 'raw':
-                embedding = get_passt_scene_embeddings_fn(audio_batch, encoder) # Ensure get_passt_scene_embeddings_fn is imported
-            elif self.config.passt_input_type == 'mel':
-                # ... your mel handling for passt if you implement it ...
-                raise NotImplementedError("PaSST with pre-computed mel needs specific handling in _extract_embeddings.")
+            if not hasattr(self.config, 'panns_input_type'):
+                self.config.panns_input_type = 'raw'  # Default if not in config
+
+            if self.config.panns_input_type == 'raw':
+                # Cnn14's forward method: input=audio_batch, mixup_lambda=None
+                # It returns a dict: {'clipwise_output': ..., 'embedding': ...}
+                output_dict = encoder(input=audio_batch, mixup_lambda=None)
+                embedding = output_dict['embedding']
+            elif self.config.panns_input_type == 'mel':
+                raise NotImplementedError("PANNs with pre-computed mel for Cnn14 needs specific handling.")
             else:
-                raise ValueError(f"Invalid passt_input_type: {self.config.passt_input_type}")
+                raise ValueError(f"Invalid panns_input_type: {self.config.panns_input_type}")
         elif self.model_type == "panns":
             if self.config.panns_input_type == 'raw':
                 output_dict = encoder(input=audio_batch, mixup_lambda=None)  # Call Cnn14.forward
