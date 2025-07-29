@@ -61,28 +61,69 @@ machine, run ```wandb login``` and copy your API key from [this](https://wandb.a
 
 ## Training
 
-To start the training, run the following command.
-```
-cd MAIN_FOLDER_OF_THIS_REPOSITORY
+All training is handled by the unified script `src/qvim_mn_baseline/train.py`. It is highly configurable and supports multiple model architectures and data augmentation strategies.
+
+To see all available options, run:
+
+```bash
 export PYTHONPATH=$(pwd)/src
-python src/qvim_mn_baseline/ex_qvim.py
+python src/qvim_mn_baseline/train.py --help
+```
+
+### Usage Examples
+
+#### 1\. Train the MobileNetV3 Baseline (Original)
+
+This command replicates the original baseline without advanced augmentations.
+
+```bash
+python src/qvim_mn_baseline/train.py \
+    --model_type mobilenet \
+    --project "qvim-experiments" \
+    --model_save_path "checkpoints"
+```
+
+#### 2\. Train a PaSST Model with "Light" Augmentations
+
+This example uses the powerful PaSST model and enables the "light" augmentation profile.
+
+```bash
+python src/qvim_mn_baseline/train.py \
+    --model_type passt \
+    --use_augmentations true \
+    --aug_profile light \
+    --batch_size 12 \
+    --n_epochs 50 \
+    --project "qvim-experiments" \
+    --model_save_path "checkpoints"
+```
+
+#### 3\. Train a BEATs Model with "Full" Augmentations and SpecMix
+
+This command trains the BEATs model using the "full" augmentation profile, which includes SpecMix.
+
+```bash
+python src/qvim_mn_baseline/train.py \
+    --model_type beats \
+    --beats_checkpoint_path "path/to/your/BEATs_iter3.pt" \
+    --use_augmentations true \
+    --aug_profile full \
+    --batch_size 8 \
+    --n_epochs 75 \
+    --project "qvim-experiments" \
+    --model_save_path "checkpoints"
 ```
 
 ## Evaluation Results
 
+*(This table can be updated with new results from the refactored models)*
 
-| Model Name   | MRR (exact match) | NDCG (category match) |
-|--------------|-------------------|-----------------------|
-| random       | 0.0444            | ~0.337                |
-| 2DFT         | 0.1262            | 0.4793                |
-| MN baseline  | 0.2726            | 0.6463                |
-
-- The Mean Reciprocal Rank (MRR) is the metric used to select submitted systems for the subjective evaluation. The MRR gives the average inverse rank $\frac{1}{r_i}$ of the reference sound $i$ averaged over all imitations $Q$:
-
-$$\textrm{MRR} = \frac{1}{\lvert Q \rvert} \sum_{i=1}^{\lvert Q \rvert} \frac{1}{r_i}$$
-
-- The [Normalized Discounted Cumulative Gain](https://en.wikipedia.org/wiki/Discounted_cumulative_gain) (NDCG) measures the systems' ability to retrieve sounds of the imitated category (i.e., how good is the system at retrieving an arbitrary dog bark if a specific dog bark was imitated). 
-The NDCG will *not* be used for ranking.
+| Model Name      | MRR (exact match) | NDCG (category match) |
+| --------------- | ----------------- | --------------------- |
+| random          | 0.0444            | \~0.337                |
+| MN baseline     | 0.2726            | 0.6463                |
+| *MN + Light Aug* | *(add new result)* | *(add new result)* |
+| *PaSST + Full Aug*| *(add new result)* | *(add new result)* |
 
 ## Contact
 For questions or inquiries, please contact [paul.primus@jku.at](mailto:paul.primus@jku.at).
