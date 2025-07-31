@@ -7,7 +7,7 @@ import traceback
 from audiomentations import Compose, AddGaussianNoise, PitchShift, TimeStretch
 from qvim_mn_baseline.dataset import VimSketchDataset
 from audio_temporal_modifier import TemporalModifier
-from audio_spec_mixer_from_spectrogram import SpecMixerSpectrogramOut  # Use the spectrogram-out version
+from spec_mixer import SpecMixerSpectrogramOut  
 
 
 class ClassTargetedAugmentedVimSketchLight(VimSketchDataset):
@@ -45,7 +45,6 @@ class ClassTargetedAugmentedVimSketchLight(VimSketchDataset):
         else:
             self.audio_pipeline = None
 
-        # Temporal modifier for envelope modulation
         self.apply_envelope_modulation_prob = apply_envelope_modulation_prob
         self.temporal_modifier = TemporalModifier(sample_rate=self.sample_rate) if apply_envelope_modulation_prob > 0 else None
 

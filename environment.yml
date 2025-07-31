@@ -1,4 +1,4 @@
-name: qvim-baseline
+name: qvim-ensemble
 channels:
   - conda-forge
   - defaults
