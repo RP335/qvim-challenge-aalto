@@ -1,5 +1,5 @@
 import numpy as np
-import librosa  # For RMS calculation
+import librosa  
 import torch
 
 class TemporalModifier:
@@ -14,15 +14,14 @@ class TemporalModifier:
                                            frame_length=self.rms_frame_length,
                                            hop_length=self.rms_hop_length)[0]
         # Normalize envelope (e.g., to [0, 1] or simply by its max)
-        if np.max(rms_envelope) > 1e-6:  # Avoid division by zero
+        if np.max(rms_envelope) > 1e-6:  
             rms_envelope = rms_envelope / np.max(rms_envelope)
         else:
-            rms_envelope = np.zeros_like(rms_envelope)  # or ones_like if preferred for silence
+            rms_envelope = np.zeros_like(rms_envelope)  
         return rms_envelope
 
     def _align_envelope_to_audio(self, envelope: np.ndarray, audio_length: int) -> np.ndarray:
         # Upsample/interpolate envelope to match audio length
-        # This can be simple repeating or linear interpolation
         times_envelope = librosa.frames_to_time(np.arange(envelope.shape[0]),
                                                 sr=self.sample_rate,
                                                 hop_length=self.rms_hop_length)
@@ -49,22 +48,18 @@ class TemporalModifier:
         if modulate_reference_with_imitation:
             source_for_envelope = imitation_np
             target_to_modulate = reference_np
-        else:  # Modulate imitation with reference envelope (less common for QBE but possible)
+        else: 
             source_for_envelope = reference_np
             target_to_modulate = imitation_np
 
         if len(source_for_envelope) == 0 or len(target_to_modulate) == 0:
-            return sample  # Nothing to modulate
+            return sample 
 
         envelope = self._calculate_rms_envelope(source_for_envelope)
         aligned_envelope = self._align_envelope_to_audio(envelope, len(target_to_modulate))
 
         modulated_audio = target_to_modulate * (aligned_envelope * gain_factor)
 
-        # Ensure clipping if necessary, though direct multiplication might not require it
-        # modulated_audio = np.clip(modulated_audio, -1.0, 1.0) # If your audio is in [-1,1]
-
-        # will handle both numpy arrays and torch.Tensors
         tensor_audio = torch.as_tensor(modulated_audio, dtype=torch.float32)
 
         if modulate_reference_with_imitation:

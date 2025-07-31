@@ -41,8 +41,8 @@ git clone https://github.com/qvim-aes/qvim-baseline.git
 
 2. Create and activate a conda environment with Python 3.10:
 ```
-conda create -n environment.yml
-conda activate qvim-baseline
+conda create -f environment.yml
+conda activate qvim-ensemble
 ```
 
 3. Install 7z, e.g., 
