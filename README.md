@@ -1,11 +1,11 @@
-# AES AIMLA Challenge 2025 Baseline System
+# AES AIMLA Challenge 2025 System by Team AudioAlchemy
 ## Query-by-Vocal Imitation Challenge
 
 *Query by Vocal Imitation* (QVIM) enables users to search a database of sounds via a vocal imitation of the desired sound.
 This offers sound designers an intuitively expressive way of navigating large sound effects databases. 
 
 
-We invite participants to submit systems that accept a vocal imitation query and retrieve a perceptually similar recording from a large database of sound effects.
+This is our code for this challenge. 
 
 **Important Dates**
 - Challenge start: April 1, 2025 
@@ -14,10 +14,9 @@ We invite participants to submit systems that accept a vocal imitation query and
 
 For more details, please have a look at our [website](https://qvim-aes.github.io/#portfolio).
 
-**For Updates** please register [here](https://qvim-aes.github.io/#Registration).
 
 ## Baseline System
-This repository contains the baseline system for the AES AIMLA Challenge 2025. 
+This repository contains the modified baseline system for the AES AIMLA Challenge 2025. 
 The architecture and the training procedure is based on ["Improving Query-by-Vocal Imitation with Contrastive Learning and Audio Pretraining"](https://dcase.community/documents/workshop2024/proceedings/DCASE2024Workshop_Greif_36.pdf) (DCASE2025 Workshop). 
 
 * The training loop is implemented using [PyTorch](https://pytorch.org/) and [PyTorch Lightning](https://lightning.ai/). 
@@ -116,17 +115,20 @@ python src/qvim_mn_baseline/train.py \
 
 ## Evaluation Results
 
-*(This table can be updated with new results from the refactored models)*
 
-| Model Name      | MRR (exact match) | NDCG (category match) |
-| --------------- | ----------------- | --------------------- |
-| random          | 0.0444            | \~0.337                |
-| MN baseline     | 0.2726            | 0.6463                |
-| *MN + Light Aug* | *(add new result)* | *(add new result)* |
-| *PaSST + Full Aug*| *(add new result)* | *(add new result)* |
+| Model Name      | MRR (exact match) | 
+| --------------- | ----------------- | 
+| random          | 0.0444            | 
+| MN baseline     | 0.2726            | 
+| *MN + Light Aug* | 0.2835           | 
+| *PaSST* | 0.1502           | 
+| *PANNs* | 0.1577          | 
+| *BEATs* | 0.2309         | 
+
+
 
 ## Contact
-For questions or inquiries, please contact [paul.primus@jku.at](mailto:paul.primus@jku.at).
+For questions or inquiries, please contact [rahul.peter@aalto.fi](mailto:rahul.peter@aalto.fi) or [vivek.mohan@aalto.fi](mailto:vivek.mohan@aalto.fi).
 
 
 ## Citation
